@@ -1,0 +1,352 @@
+library('dplyr')
+library('readr')
+library('randomForest')
+library('e1071')
+library('readxl')
+library('xgboost')
+library('mice')
+library('neuralnet')
+library('glmnet')
+library('VIM')
+library('car')
+library('Metrics')
+library('psych')
+library('rpart')
+library('rpart.plot')
+
+
+data <- read_csv("C:/Users/ft7b6/OneDrive/Desktop/Data_v7_220503_clean2.csv")
+
+
+###########################################
+get_information <- function(data){  
+  set.seed(123)
+  ord = sample(1:nrow(data), nrow(data), replace = FALSE)
+  data = data[ord,]
+  SELECT_VARIABLES <- colnames(data)
+  excat_position <- is.na(data) %>% which(arr.ind = TRUE)
+  mis_data1 = as.data.frame(table(colnames(data)[excat_position[,2]]))
+  rownames(mis_data1) <- mis_data1$Var1
+  data %>% glimpse()
+  print("Number of NA Values in Each Variable :")
+  print(mis_data1 %>% select(-1))
+  percent_mis_data = mis_data1 %>% select(-1) / nrow(data) * 100
+  for (i in 1:nrow(percent_mis_data)){
+    percent_mis_data[i,1] = paste0(round(as.numeric(percent_mis_data[i,1]), 4), '%')
+  }
+  percent_mis_data
+  print("Percentage of NA Values in Each Variable :")
+  print(percent_mis_data)
+  print(as.data.frame(SELECT_VARIABLES))
+}
+drop_na <- function(data, method){
+  data <- apply(data, 2, as.numeric)
+  if (method == 'omit'){
+    data <- data %>% na.omit()
+  }
+  else if (method == 'mean'){
+    for(i in 1:ncol(data)) {
+      data[, i][is.na(data[, i])] <- mean(data[, i], na.rm = TRUE)
+    }
+  }
+  else if (method == 'median'){
+    for(i in 1:ncol(data)) {
+      data[, i][is.na(data[, i])] <- median(data[, i], na.rm = TRUE)
+    }
+  }
+  else if (method == 'mode'){
+    for(i in 1:ncol(data)) {
+      data[, i][is.na(data[, i])] <- mode(data[, i], na.rm = TRUE)
+    }
+  }
+  else{
+    data <- data %>% na.omit()
+  }
+  data <- data %>% as.data.frame()
+  return(data)
+} # method = c('omit', 'mean', 'median', 'mode)
+
+data_selection <- function(data, pos_X, pos_y, method){
+  data_X <- data %>% select(pos_X)
+  data_y <- data %>% select(pos_y)
+  data <- cbind(data_X, data_y) # last column is predicted
+  drop_na(data, method)
+}
+
+data_into_five <- function(data){
+  divid_number <- nrow(data)
+  divid_number_20 <- floor(divid_number / 5)
+  first_4 <- seq(1, 5 * divid_number_20, divid_number_20)
+  divid_5_position <- list(first_4[1]:(first_4[2]-1), first_4[2]:(first_4[3]-1), 
+                           first_4[3]:(first_4[4]-1), first_4[4]:(first_4[5]-1),
+                           first_4[5]:nrow(data))
+  return(divid_5_position)
+}
+coefficient_of_determination <- function(true, pred){
+  rss <- sum((pred - true) ** 2)
+  tss <- sum((true - mean(true)) ** 2)
+  rsq <- 1 - (rss/tss)
+  return(rsq)
+}
+#######################################################
+
+llm <- function(data, order){
+  linear_m <- lm(unlist(data[ncol(data)])  %>% as.numeric() ~ ., data = data[,1:ncol(data) - 1])
+  print("~")
+  print('T test')
+  linear_m %>% summary() %>% print()
+  print('~')
+  print('F test')
+  linear_m %>% anova() %>% print()
+  print('~')
+  print('VIF MultiConlinerity')
+  vif(linear_m) %>% print()
+  pearson_cor = c()
+  r_2 = c()
+  rmseee = c()
+  maeee = c()
+  for(i in 1:5){
+    train_data = data[-unlist(order[i]),] %>% as.data.frame()
+    test_data = data[unlist(order[i]),] %>% as.data.frame()
+    mod1 = lm(unlist(train_data[ncol(train_data)])  %>% as.numeric() ~ ., data = train_data[,1:ncol(train_data) - 1])
+    pred = predict(mod1, newdata = test_data[,1:ncol(test_data) - 1]) %>% as.numeric()
+    true = unlist(test_data[ncol(test_data)]) %>% as.numeric()
+    pearson_cor <- c(pearson_cor, cor(pred, true))
+    r_2 <- c(r_2, coefficient_of_determination(pred, true))
+    rmseee <- c(rmseee, rmse(true, pred))
+    maeee <- c(maeee, mae(true, pred))
+  }
+  paste('Pearson Coefficient Correlation :', pearson_cor)  %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('Coefficient of Determination :', r_2)  %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('RMSE : ', rmseee)  %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('MAE : ', maeee) %>% print()
+}
+
+#######################################################
+
+lss0 <- function(data, order){
+  set.seed(123)
+  y = data[,ncol(data)]
+  X = data[,-ncol(data)] %>% as.matrix()
+  mod2 <- cv.glmnet(x = X, y = y, alpha = 1)
+  mod2 %>% plot()
+  plot(mod2$glmnet.fit, 
+       "lambda", label = TRUE)
+  paste('The Min Value of Lambda for Lasso Reg is :', mod2$lambda.min) %>% print()
+  mod2 <- glmnet(X, y, alpha = 1, lambda = mod2$lambda.min)
+  print(mod2$beta)
+  
+  pearson_cor = c()
+  r_2 = c()
+  rmseee = c()
+  maeee = c()
+  
+  for(i in 1:5){
+    train_data = data[-unlist(order[i]),] %>% as.data.frame()
+    test_data = data[unlist(order[i]),] %>% as.data.frame()
+    train_data_X = train_data[,-ncol(train_data)] %>% as.matrix()
+    train_data_y = train_data[,ncol(test_data)]
+    test_data_X = test_data[,-ncol(test_data)] %>% as.matrix()
+    test_data_y = test_data[,ncol(test_data)]
+    mod2_cl = glmnet(train_data_X, train_data_y, alpha = 1, lambda = mod2$lambda)
+    pred = predict(mod2_cl, newx = test_data_X) %>% as.numeric()
+    true = unlist(test_data_y) %>% as.numeric()
+    pearson_cor <- c(pearson_cor, cor(pred, true))
+    r_2 <- c(r_2, coefficient_of_determination(pred, true))
+    rmseee <- c(rmseee, rmse(true, pred))
+    maeee <- c(maeee, mae(true, pred))
+  }
+  paste('Pearson Coefficient Correlation :', pearson_cor) %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('Coefficient of Determination :', r_2) %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('RMSE : ', rmseee) %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('MAE : ', maeee) %>% print()
+}
+
+
+#####################################################
+
+ridgee <- function(data, order){
+  set.seed(123)
+  y = data[,ncol(data)]
+  X = data[,-ncol(data)] %>% as.matrix()
+  mod3 <- cv.glmnet(x = X, y = y, alpha = 0)
+  mod3 %>% plot()
+  plot(mod3$glmnet.fit, 
+       "lambda", label = TRUE)
+  paste('The Min Value of Lambda for Redge Reg is :', mod3$lambda.min) %>% print()
+  mod3 <- glmnet(X, y, alpha = 0, lambda = mod3$lambda.min)
+  print(mod3$beta)
+  
+  pearson_cor = c()
+  r_2 = c()
+  rmseee = c()
+  maeee = c()
+  
+  for(i in 1:5){
+    train_data = data[-unlist(order[i]),] %>% as.data.frame()
+    test_data = data[unlist(order[i]),] %>% as.data.frame()
+    train_data_X = train_data[,-ncol(train_data)] %>% as.matrix()
+    train_data_y = train_data[,ncol(test_data)]
+    test_data_X = test_data[,-ncol(test_data)] %>% as.matrix()
+    test_data_y = test_data[,ncol(test_data)]
+    mod3_cl = glmnet(train_data_X, train_data_y, alpha = 0, lambda = mod3$lambda)
+    pred = predict(mod3_cl, newx = test_data_X) %>% as.numeric()
+    true = unlist(test_data_y) %>% as.numeric()
+    pearson_cor <- c(pearson_cor, cor(pred, true))
+    r_2 <- c(r_2, coefficient_of_determination(pred, true))
+    rmseee <- c(rmseee, rmse(true, pred))
+    maeee <- c(maeee, mae(true, pred))
+  }
+  paste('Pearson Coefficient Correlation :', pearson_cor) %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('Coefficient of Determination :', r_2) %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('RMSE : ', rmseee) %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('MAE : ', maeee) %>% print()
+}
+#####################################################
+tree_stat <- function(data){
+  r_tree_stat <- rpart(unlist(data[ncol(data)])  %>% as.numeric() ~ ., data = data[,1:ncol(data) - 1], method = 'anova')
+  r_tree_stat %>% printcp() 
+  r_tree_stat %>% summary()
+  rpart.plot::rpart.plot(r_tree_stat)
+  rsq.rpart(r_tree_stat)
+}
+#######################################################
+rf_cv <- function(data){
+  oooorder = sample(1:nrow(data), floor(0.75 * nrow(data)), replace = FALSE)
+  train_data = data[oooorder,] %>% as.data.frame()
+  test_data = data[-oooorder,] %>% as.data.frame()
+  xxx <- c()
+  mtry_record = c()
+  ntree_record = c()
+  set_mtry = c(as.numeric(round(log(ncol(train_data)-1))), as.numeric(round(log(ncol(train_data)-1))) + 1, as.numeric(round(log(ncol(train_data)-1))) + 2)
+  set_ntree = seq(400, 1000, 100)
+  for(i in 1: length(set_mtry)){
+    for (j in 1: length(set_ntree)){
+      rf_find_best <- randomForest(unlist(train_data[ncol(train_data)]) %>% as.numeric() ~ ., 
+                        data = train_data[,1:ncol(train_data) - 1], ntree = set_ntree[j],
+                        mtry = set_mtry[i])
+      pred = as.numeric(predict(rf_find_best, newdata = test_data[,1:ncol(test_data) - 1]))
+      r_2 <- coefficient_of_determination(unlist(test_data[ncol(test_data)]) %>% as.numeric(), pred)
+      xxx <- c(xxx, r_2)
+      mtry_record = c(mtry_record, rf_find_best$mtry)
+      ntree_record = c(ntree_record, rf_find_best$ntree)
+      which(xxx == max(xxx))
+    }
+  }
+  paste('The optimal ntree is :', ntree_record[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal mtry is :', mtry_record[which(xxx == max(xxx))]) %>% print()
+  
+  pearson_cor = c()
+  r_2 = c()
+  rmseee = c()
+  maeee = c()
+  for(i in 1:5){
+    train_data = data[-unlist(order[i]),] %>% as.data.frame()
+    test_data = data[unlist(order[i]),] %>% as.data.frame()
+    mod4 = randomForest(unlist(train_data[ncol(train_data)])  %>% as.numeric() ~ ., data = train_data[,1:ncol(train_data) - 1],
+                        ntree = ntree_record[which(xxx == max(xxx))], mtry =mtry_record[which(xxx == max(xxx))])
+    pred = predict(mod4, newdata = test_data[,1:ncol(test_data) - 1]) %>% as.numeric()
+    true = unlist(test_data[ncol(test_data)]) %>% as.numeric()
+    pearson_cor <- c(pearson_cor, cor(pred, true))
+    r_2 <- c(r_2, coefficient_of_determination(pred, true))
+    rmseee <- c(rmseee, rmse(true, pred))
+    maeee <- c(maeee, mae(true, pred))
+    
+    paste('Pearson Coefficient Correlation :', pearson_cor) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('Coefficient of Determination :', r_2) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('RMSE : ', rmseee) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('MAE : ', maeee) %>% print()
+  }
+}
+
+#######
+pearson_cor = c()
+r_2 = c()
+rmseee = c()
+maeee = c()
+for(i in 1:5){
+  train_data = data[-unlist(order[i]),] %>% as.data.frame()
+  test_data = data[unlist(order[i]),] %>% as.data.frame()
+  mod5 = neuralnet(unlist(train_data[ncol(train_data)])  %>% as.numeric() ~ ., data = train_data[,1:ncol(train_data) - 1])
+  pred = predict(mod4, newdata = test_data[,1:ncol(test_data) - 1]) %>% as.numeric()
+  true = unlist(test_data[ncol(test_data)]) %>% as.numeric()
+  pearson_cor <- c(pearson_cor, cor(pred, true))
+  r_2 <- c(r_2, coefficient_of_determination(pred, true))
+  rmseee <- c(rmseee, rmse(true, pred))
+  maeee <- c(maeee, mae(true, pred))
+?neuralnet()
+  paste('Pearson Coefficient Correlation :', pearson_cor) %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('Coefficient of Determination :', r_2) %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('RMSE : ', rmseee) %>% print()
+  print("      ")
+  print(" __________________________ ")
+  print("      ")
+  paste('MAE : ', maeee) %>% print()
+}
+
+
+############
+
+get_information(data)
+all_func_together1 <- function(data, pos_X, pos_y, method){
+  data <- data_selection(data, pos_X, pos_y, method)
+  order = data_into_five(data)  
+  llm(data, order)
+  lss0(data, order)
+  ridgee(data, order)
+  tree_stat(data)
+  rf_cv(data)
+}
+all_func_together1(data, c(9:14, 7), c(8), 'mean')
+
+data <- data_selection(data, c(9:14, 7), c(8), 'mean')
+
+
+
+
+neuralnet(unlist(train_data[ncol(train_data)])  %>% as.numeric() ~ ., data = train_data[,1:ncol(train_data) - 1], hidden = 3, rep = 1, threshold = 0.5, learningrate = 0.01)
+ neuralnet(train_data)
+
+
