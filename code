@@ -13,8 +13,11 @@ library('Metrics')
 library('psych')
 library('rpart')
 library('rpart.plot')
-
-
+library('xgboost')
+library('caret')
+library('ggplot2')
+library('corrplot')
+library('lightgbm') 
 data <- read_csv("C:/Users/ft7b6/OneDrive/Desktop/Data_v7_220503_clean2.csv")
 
 
@@ -87,7 +90,17 @@ coefficient_of_determination <- function(true, pred){
   tss <- sum((true - mean(true)) ** 2)
   rsq <- 1 - (rss/tss)
   return(rsq)
-}
+} 
+
+
+
+
+
+
+
+
+
+
 #######################################################
 
 llm <- function(data, order){
@@ -130,6 +143,11 @@ llm <- function(data, order){
   print("      ")
   paste('MAE : ', maeee) %>% print()
 }
+
+
+
+
+
 
 #######################################################
 
@@ -180,7 +198,7 @@ lss0 <- function(data, order){
   paste('MAE : ', maeee) %>% print()
 }
 
-
+ #lsso
 #####################################################
 
 ridgee <- function(data, order){
@@ -228,7 +246,7 @@ ridgee <- function(data, order){
   print(" __________________________ ")
   print("      ")
   paste('MAE : ', maeee) %>% print()
-}
+} # ridge
 #####################################################
 tree_stat <- function(data){
   r_tree_stat <- rpart(unlist(data[ncol(data)])  %>% as.numeric() ~ ., data = data[,1:ncol(data) - 1], method = 'anova')
@@ -236,9 +254,10 @@ tree_stat <- function(data){
   r_tree_stat %>% summary()
   rpart.plot::rpart.plot(r_tree_stat)
   rsq.rpart(r_tree_stat)
-}
+} # tree
 #######################################################
 rf_cv <- function(data){
+  set.seed(123)
   oooorder = sample(1:nrow(data), floor(0.75 * nrow(data)), replace = FALSE)
   train_data = data[oooorder,] %>% as.data.frame()
   test_data = data[-oooorder,] %>% as.data.frame()
@@ -294,40 +313,247 @@ rf_cv <- function(data){
     paste('MAE : ', maeee) %>% print()
   }
 }
-
-#######
-pearson_cor = c()
-r_2 = c()
-rmseee = c()
-maeee = c()
-for(i in 1:5){
-  train_data = data[-unlist(order[i]),] %>% as.data.frame()
-  test_data = data[unlist(order[i]),] %>% as.data.frame()
-  mod5 = neuralnet(unlist(train_data[ncol(train_data)])  %>% as.numeric() ~ ., data = train_data[,1:ncol(train_data) - 1])
-  pred = predict(mod4, newdata = test_data[,1:ncol(test_data) - 1]) %>% as.numeric()
-  true = unlist(test_data[ncol(test_data)]) %>% as.numeric()
-  pearson_cor <- c(pearson_cor, cor(pred, true))
-  r_2 <- c(r_2, coefficient_of_determination(pred, true))
-  rmseee <- c(rmseee, rmse(true, pred))
-  maeee <- c(maeee, mae(true, pred))
-?neuralnet()
-  paste('Pearson Coefficient Correlation :', pearson_cor) %>% print()
-  print("      ")
-  print(" __________________________ ")
-  print("      ")
-  paste('Coefficient of Determination :', r_2) %>% print()
-  print("      ")
-  print(" __________________________ ")
-  print("      ")
-  paste('RMSE : ', rmseee) %>% print()
-  print("      ")
-  print(" __________________________ ")
-  print("      ")
-  paste('MAE : ', maeee) %>% print()
+ # rf
+##########################################################
+xgboost123 <- function(data, order){
+  pearson_cor = c()
+  xxx = c()
+  rmseee = c()
+  maeee = c()
+  depthh = c()
+  eeta = c()
+  lambdaa = c()
+  mod5_data <- data %>% as.matrix()
+  set.seed(123)
+  oooorder = sample(1:nrow(mod5_data), floor(0.75 * nrow(mod5_data)), replace = FALSE)
+  train_data = mod5_data[oooorder,] %>% as.matrix()
+  test_data = mod5_data[-oooorder,] %>% as.matrix()
+  for(i in seq(3,11,2)){
+    for(j in c(0.05, 0.1, 0.15)){
+      for(k in c(1,2)){
+        mod5 <-
+            xgboost(
+            data = train_data[, 1: ncol(train_data)-1],
+            label = train_data[, ncol(train_data)],
+            nrounds = 10000,
+            objective = "reg:squarederror",
+            early_stopping_rounds = 2,
+            max_depth = i,
+            lambda = k,
+            eta = j,
+            eval_metric = 'rmse',
+            subsample = 0.9
+          )
+        pred = predict(mod5, newdata = test_data[,1:ncol(test_data) - 1]) %>% as.matrix()
+        true = unlist(test_data[,ncol(test_data)]) %>% as.numeric()
+        pearson_cor <- c(pearson_cor, cor(pred, true))
+        xxx <- c(xxx, coefficient_of_determination(pred, true))
+        rmseee <- c(rmseee, rmse(true, pred))
+        maeee <- c(maeee, mae(true, pred))
+        eeta <- c(eeta, j) # eta
+        lambdaa <- c(lambdaa, k) # lambda
+        depthh <- c(depthh, i) # max_depth
+      }
+    }
+  }
+   
+  paste('The optimal lambda is :', lambdaa[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal eta is :', eeta[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal max_depth is :', depthh[which(xxx == max(xxx))]) %>% print()
+  
+  
+  pearson_cor = c()
+  r_2 = c()
+  rmseee = c()
+  maeee = c()
+  
+  for(i in 1:5){
+    train_data = mod5_data[-unlist(order[i]),] %>% as.matrix()
+    test_data = mod5_data[unlist(order[i]),] %>% as.matrix()
+    mod5 <-
+      xgboost(
+        data = train_data[, 1: ncol(train_data)-1],
+        label = train_data[, ncol(train_data)],
+        nrounds = 10000,
+        objective = "reg:squarederror",
+        early_stopping_rounds = 2,
+        max_depth = lambdaa[which(xxx == max(xxx))],
+        lambda = lambdaa[which(xxx == max(xxx))],
+        eta = eeta[which(xxx == max(xxx))],
+        eval_metric = 'rmse',
+        subsample = 0.9
+      )
+    pred = predict(mod5, newdata = test_data[,1:ncol(test_data) - 1]) %>% as.matrix()
+    true = unlist(test_data[,ncol(test_data)]) %>% as.numeric()
+    pearson_cor <- c(pearson_cor, cor(pred, true))
+    r_2 <- c(r_2, coefficient_of_determination(pred, true))
+    rmseee <- c(rmseee, rmse(true, pred))
+    maeee <- c(maeee, mae(true, pred))
+    
+    paste('Pearson Coefficient Correlation :', pearson_cor) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('Coefficient of Determination :', r_2) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('RMSE : ', rmseee) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('MAE : ', maeee) %>% print()
+  }
 }
 
 
-############
+
+############################################################
+
+lightgbm123 <- function(data, order){
+  pearson_cor = c()
+  xxx = c()
+  rmseee = c()
+  maeee = c()
+  depthh = c()
+  lrr = c()
+  num_leaves = c()
+  feature_frac = c()
+  bagging_frac = c()
+  boost = c()
+  
+  for(i in c(-1, 3, 4, 5, 6, 7)){ # depth
+    for (j in c(0.05, 0.1, 0.15)){ # lr
+      for (k in c(2,4,8,16,32)){ # num_leaves
+        for (a in c(0.8, 1.0)){ #feature_frac
+          for (c in c(0.8, 0.9, 1.0)){ #bagging_frac
+            for (b in c('goss', 'gbdt')){ #boosting
+              
+              mod6_data <- data
+              set.seed(123)
+              oooorder = sample(1:nrow(mod6_data), floor(0.75 * nrow(mod6_data)), replace = FALSE)
+              train_data = mod6_data[oooorder,] %>% as.matrix()
+              test_data = mod6_data[-oooorder,] %>% as.matrix()
+              lgb_train = lgb.Dataset(train_data[, 1: ncol(train_data)-1], label = train_data[, ncol(train_data)])
+              lgb_test = lgb.Dataset(test_data[, 1: ncol(test_data)-1], label = test_data[, ncol(test_data)])
+        
+              params = list(
+                objective = "regression"
+                , metric = "l2"
+                , learning_rate = j
+                , num_leaves = k
+                , max_depth = i
+                , boosting = b
+                , feature_fraction = a
+                , bagging_fraction = c
+              )
+              
+              valids = list(test = lgb_test)
+              
+              model = lgb.train(
+                params = params
+                , data = lgb_train
+                , nrounds = 2000L
+                , valids = valids
+                , early_stopping_round = 100
+              )
+              
+              lgb.get.eval.result(model, "test", "l2")
+              pred = predict(model, test_data[, 1: ncol(test_data)-1])
+              true = unlist(test_data[,ncol(test_data)]) %>% as.numeric()
+              
+              pearson_cor <- c(pearson_cor, cor(pred, true))
+              xxx <- c(xxx, coefficient_of_determination(pred, true))
+              rmseee <- c(rmseee, rmse(true, pred))
+              maeee <- c(maeee, mae(true, pred))
+              depthh = c(depthh, i)
+              lrr = c(lrr, j)
+              num_leaves = c(num_leaves, k)
+              feature_frac = c(feature_frac, a)
+              bagging_frac = c(bagging_frac, c)
+              boost = c(boost, b)
+            }
+          }  
+        }  
+      }
+    }
+  }
+  paste('The optimal depth is :', depthh[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal learning_rate is :', lrr[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal num_leaves is :', num_leaves[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal feature_frac is :', feature_frac[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal bagging_frac is :', bagging_frac[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal boosting is :', boost[which(xxx == max(xxx))]) %>% print()
+  
+  
+  pearson_cor = c()
+  r_2 = c()
+  rmseee = c()
+  maeee = c()
+  
+  for(i in 1:5){
+    train_data = mod5_data[-unlist(order[i]),] %>% as.matrix()
+    test_data = mod5_data[unlist(order[i]),] %>% as.matrix()
+    params = list(
+      objective = "regression"
+      , metric = "l2"
+      , learning_rate = lrr[which(xxx == max(xxx))[1]]                             # which(xxx == max(xxx))[1]
+      , num_leaves = num_leaves[which(xxx == max(xxx))[1]] 
+      , max_depth = depthh[which(xxx == max(xxx))[1]] 
+      , boosting = boost[which(xxx == max(xxx))[1]] 
+      , feature_fraction = feature_frac[which(xxx == max(xxx))[1]] 
+      , bagging_fraction = bagging_frac[which(xxx == max(xxx))[1]] 
+    )
+    
+    valids = list(test = lgb_test)
+    
+    model = lgb.train(
+      params = params
+      , data = lgb_train
+      , nrounds = 2000L
+      , valids = valids
+      , early_stopping_round = 100
+    )
+    
+    
+    pred = predict(mod5, newdata = test_data[,1:ncol(test_data) - 1]) %>% as.matrix()
+    true = unlist(test_data[,ncol(test_data)]) %>% as.numeric()
+    pearson_cor <- c(pearson_cor, cor(pred, true))
+    r_2 <- c(r_2, coefficient_of_determination(pred, true))
+    rmseee <- c(rmseee, rmse(true, pred))
+    maeee <- c(maeee, mae(true, pred))
+    
+    paste('Pearson Coefficient Correlation :', pearson_cor) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('Coefficient of Determination :', r_2) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('RMSE : ', rmseee) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('MAE : ', maeee) %>% print()
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##################
 
 get_information(data)
 all_func_together1 <- function(data, pos_X, pos_y, method){
@@ -338,15 +564,63 @@ all_func_together1 <- function(data, pos_X, pos_y, method){
   ridgee(data, order)
   tree_stat(data)
   rf_cv(data)
+  xgboost123(data, order)
 }
 all_func_together1(data, c(9:14, 7), c(8), 'mean')
 
+ 
 data <- data_selection(data, c(9:14, 7), c(8), 'mean')
+train_data = data[-unlist(order[i]),] %>% as.data.frame()
+test_data = data[unlist(order[i]),] %>% as.data.frame()
+
+
+
+?preProcess()
+s = preProcess(train_data, method = 'scale')
+zzd = predict(s, train_data)
+
+
+?scale()
+
+
+########################################################################################################
+violin_plot <- function(data){
+  print("Support Numerical Value or Factor Only")
+  data = apply(data, 2, as.numeric) %>% as.data.frame()
+  for(i in 1:ncol(data))
+  {
+    print(ggplot(data, aes(x = data[,i], y = " ")) +
+            xlab('Value') +
+            ylab(colnames(data)[i]) +
+            geom_violin() + 
+            stat_summary(fun = "mean",
+                         geom = "crossbar",
+                         width = 1,
+                         aes(color = "Mean")) +
+            stat_summary(fun = "median",
+                         geom = "crossbar",
+                         width = 1,
+                         aes(color = "Median")) +
+            scale_colour_manual(values = c("dark red", "blue"), # Colors
+                                name = "" )+ 
+            theme_light() + 
+            theme(text = element_text(size = 20)))
+  } 
+}
+violin_plot(data)
+
+corrplot(cor(data), method = 'pie', type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
 
 
 
 
-neuralnet(unlist(train_data[ncol(train_data)])  %>% as.numeric() ~ ., data = train_data[,1:ncol(train_data) - 1], hidden = 3, rep = 1, threshold = 0.5, learningrate = 0.01)
- neuralnet(train_data)
+
+
+
+
+
+
+
 
 
