@@ -22,7 +22,7 @@ data <- read_csv("C:/Users/ft7b6/OneDrive/Desktop/Data_v7_220503_clean2.csv")
 
 
 ###########################################
-get_information <- function(data){  
+get_info <- function(data){  
   set.seed(123)
   ord = sample(1:nrow(data), nrow(data), replace = FALSE)
   data = data[ord,]
@@ -92,10 +92,48 @@ coefficient_of_determination <- function(true, pred){
   return(rsq)
 } 
 
-
-
-
-
+dist_plot <- function(data){
+  print("HIST PLOT; Factor Var ONLY")
+  for(i in 1:ncol(data)){
+    print(ggplot(data = non_numerical_data, aes(x = non_numerical_data[,i], fill = non_numerical_data[,i])) +
+            geom_bar() +
+            xlab(colnames(non_numerical_data)[i])+
+            guides(fill = guide_legend(title = colnames(non_numerical_data)[i])))
+  }
+}
+violin_plot <- function(data){
+  print("VIOLIN PLOT; Numerical Var ONLY")
+  data = apply(data, 2, as.numeric) %>% as.data.frame()
+  for(i in 1:ncol(data))
+  {
+    print(ggplot(data, aes(x = data[,i], y = " ")) +
+            xlab('Value') +
+            ylab(colnames(data)[i]) +
+            geom_violin() + 
+            stat_summary(fun = "mean",
+                         geom = "crossbar",
+                         width = 1,
+                         aes(color = "Mean")) +
+            stat_summary(fun = "median",
+                         geom = "crossbar",
+                         width = 1,
+                         aes(color = "Median")) +
+            scale_colour_manual(values = c("dark red", "blue"), # Colors
+                                name = "" )+ 
+            theme_light() + 
+            theme(text = element_text(size = 20)))
+  } 
+}
+visual_summary1 <- function(data){
+  fake_data <- apply(data, 2, as.numeric)
+  fake_data_get_nonnum <- which(apply(fake_data, 2, is.na)  == TRUE, arr.ind = TRUE)
+  non_numerical_data <- data[,unique(fake_data_get_nonnum[,2])]
+  numerical_data <- data[,-unique(fake_data_get_nonnum[,2])]
+  dist_plot(non_numerical_data)
+  violin_plot(numerical_data)
+  corrplot(cor(numerical_data), method = 'pie', type = "upper", order = "hclust", 
+           tl.col = "black", tl.srt = 45)
+}
 
 
 
@@ -290,7 +328,8 @@ rf_cv <- function(data){
     train_data = data[-unlist(order[i]),] %>% as.data.frame()
     test_data = data[unlist(order[i]),] %>% as.data.frame()
     mod4 = randomForest(unlist(train_data[ncol(train_data)])  %>% as.numeric() ~ ., data = train_data[,1:ncol(train_data) - 1],
-                        ntree = ntree_record[which(xxx == max(xxx))], mtry =mtry_record[which(xxx == max(xxx))])
+                        ntree = ntree_record[which(xxx == max(xxx))], mtry =mtry_record[which(xxx == max(xxx))], importance = TRUE)
+    varImpPlot(mod4)
     pred = predict(mod4, newdata = test_data[,1:ncol(test_data) - 1]) %>% as.numeric()
     true = unlist(test_data[ncol(test_data)]) %>% as.numeric()
     pearson_cor <- c(pearson_cor, cor(pred, true))
@@ -555,7 +594,7 @@ lightgbm123 <- function(data, order){
 
 ##################
 
-get_information(data)
+get_info(data)
 all_func_together1 <- function(data, pos_X, pos_y, method){
   data <- data_selection(data, pos_X, pos_y, method)
   order = data_into_five(data)  
@@ -570,6 +609,7 @@ all_func_together1(data, c(9:14, 7), c(8), 'mean')
 
  
 data <- data_selection(data, c(9:14, 7), c(8), 'mean')
+visual_summary1(data)
 train_data = data[-unlist(order[i]),] %>% as.data.frame()
 test_data = data[unlist(order[i]),] %>% as.data.frame()
 
@@ -580,47 +620,14 @@ s = preProcess(train_data, method = 'scale')
 zzd = predict(s, train_data)
 
 
-?scale()
 
 
 ########################################################################################################
-violin_plot <- function(data){
-  print("Support Numerical Value or Factor Only")
-  data = apply(data, 2, as.numeric) %>% as.data.frame()
-  for(i in 1:ncol(data))
-  {
-    print(ggplot(data, aes(x = data[,i], y = " ")) +
-            xlab('Value') +
-            ylab(colnames(data)[i]) +
-            geom_violin() + 
-            stat_summary(fun = "mean",
-                         geom = "crossbar",
-                         width = 1,
-                         aes(color = "Mean")) +
-            stat_summary(fun = "median",
-                         geom = "crossbar",
-                         width = 1,
-                         aes(color = "Median")) +
-            scale_colour_manual(values = c("dark red", "blue"), # Colors
-                                name = "" )+ 
-            theme_light() + 
-            theme(text = element_text(size = 20)))
-  } 
-}
-violin_plot(data)
-
-corrplot(cor(data), method = 'pie', type = "upper", order = "hclust", 
-         tl.col = "black", tl.srt = 45)
 
 
 
 
-
-
-
-
-
-
-
-
-
+s <- c('a', 'b', 'c','c', 'c', 'b')
+s <- c(rep(s, 178), 'a')
+data <- cbind(data, s)
+data
