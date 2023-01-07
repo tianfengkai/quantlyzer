@@ -14,12 +14,17 @@ library('psych')
 library('rpart')
 library('rpart.plot')
 library('xgboost')
-
+library('caret')
+library('ggplot2')
+library('corrplot')
+library('lightgbm')
+library('automl')
+library('class') 
 data <- read_csv("C:/Users/ft7b6/OneDrive/Desktop/Data_v7_220503_clean2.csv")
 
 
 ###########################################
-get_information <- function(data){  
+get_info <- function(data){  
   set.seed(123)
   ord = sample(1:nrow(data), nrow(data), replace = FALSE)
   data = data[ord,]
@@ -39,6 +44,14 @@ get_information <- function(data){
   print(percent_mis_data)
   print(as.data.frame(SELECT_VARIABLES))
 }
+
+
+
+
+
+
+
+
 drop_na <- function(data, method){
   data <- apply(data, 2, as.numeric)
   if (method == 'omit'){
@@ -70,6 +83,9 @@ data_selection <- function(data, pos_X, pos_y, method){
   data_X <- data %>% select(pos_X)
   data_y <- data %>% select(pos_y)
   data <- cbind(data_X, data_y) # last column is predicted
+  for(i in 1:length(colnames(data))){
+      colnames(data)[i] <- gsub(" ", "_", colnames(data)[i])
+  }
   drop_na(data, method)
 }
 
@@ -89,15 +105,53 @@ coefficient_of_determination <- function(true, pred){
   return(rsq)
 } 
 
+dist_plot <- function(data){
+  print("HIST PLOT; Factor Var ONLY")
+  for(i in 1:ncol(data)){
+    print(ggplot(data = non_numerical_data, aes(x = non_numerical_data[,i], fill = non_numerical_data[,i])) +
+            geom_bar() +
+            xlab(colnames(non_numerical_data)[i])+
+            guides(fill = guide_legend(title = colnames(non_numerical_data)[i])))
+  }
+}
+violin_plot <- function(data){
+  print("VIOLIN PLOT; Numerical Var ONLY")
+  data = apply(data, 2, as.numeric) %>% as.data.frame()
+  for(i in 1:ncol(data))
+  {
+    print(ggplot(data, aes(x = data[,i], y = " ")) +
+            xlab('Value') +
+            ylab(colnames(data)[i]) +
+            geom_violin() + 
+            stat_summary(fun = "mean",
+                         geom = "crossbar",
+                         width = 1,
+                         aes(color = "Mean")) +
+            stat_summary(fun = "median",
+                         geom = "crossbar",
+                         width = 1,
+                         aes(color = "Median")) +
+            scale_colour_manual(values = c("dark red", "blue"), # Colors
+                                name = "" )+ 
+            theme_light() + 
+            theme(text = element_text(size = 20)))
+  } 
+}
+visual_summary1 <- function(data){
+  fake_data <- apply(data, 2, as.numeric)
+  fake_data_get_nonnum <- which(apply(fake_data, 2, is.na)  == TRUE, arr.ind = TRUE)
+  non_numerical_data <- data[,unique(fake_data_get_nonnum[,2])]
+  numerical_data <- data[,-unique(fake_data_get_nonnum[,2])]
+  dist_plot(non_numerical_data)
+  violin_plot(numerical_data)
+  corrplot(cor(numerical_data), method = 'pie', type = "upper", order = "hclust", 
+           tl.col = "black", tl.srt = 45)
+}
 
 
 
 
-
-
-
-
-
+                            
 #######################################################
 
 llm <- function(data, order){
@@ -253,7 +307,7 @@ tree_stat <- function(data){
   rsq.rpart(r_tree_stat)
 } # tree
 #######################################################
-rf_cv <- function(data){
+rf_cv <- function(data, order){
   set.seed(123)
   oooorder = sample(1:nrow(data), floor(0.75 * nrow(data)), replace = FALSE)
   train_data = data[oooorder,] %>% as.data.frame()
@@ -287,7 +341,8 @@ rf_cv <- function(data){
     train_data = data[-unlist(order[i]),] %>% as.data.frame()
     test_data = data[unlist(order[i]),] %>% as.data.frame()
     mod4 = randomForest(unlist(train_data[ncol(train_data)])  %>% as.numeric() ~ ., data = train_data[,1:ncol(train_data) - 1],
-                        ntree = ntree_record[which(xxx == max(xxx))], mtry =mtry_record[which(xxx == max(xxx))])
+                        ntree = ntree_record[which(xxx == max(xxx))], mtry =mtry_record[which(xxx == max(xxx))], importance = TRUE)
+    varImpPlot(mod4)
     pred = predict(mod4, newdata = test_data[,1:ncol(test_data) - 1]) %>% as.numeric()
     true = unlist(test_data[ncol(test_data)]) %>% as.numeric()
     pearson_cor <- c(pearson_cor, cor(pred, true))
@@ -312,7 +367,6 @@ rf_cv <- function(data){
 }
  # rf
 ##########################################################
-
 xgboost123 <- function(data, order){
   pearson_cor = c()
   xxx = c()
@@ -406,6 +460,136 @@ xgboost123 <- function(data, order){
 
 
 
+############################################################
+
+lightgbm123 <- function(data, order){
+  pearson_cor = c()
+  xxx = c()
+  rmseee = c()
+  maeee = c()
+  depthh = c()
+  lrr = c()
+  num_leaves = c()
+  feature_frac = c()
+  bagging_frac = c()
+  boost = c()
+  
+  for(i in c(-1, 3, 4, 5, 6, 7)){ # depth
+    for (j in c(0.05, 0.1, 0.15)){ # lr
+      for (k in c(2,4,8,16,32)){ # num_leaves
+        for (a in c(0.8, 1.0)){ #feature_frac
+          for (c in c(0.8, 0.9, 1.0)){ #bagging_frac
+            for (b in c('goss', 'gbdt')){ #boosting
+              
+              mod6_data <- data
+              set.seed(123)
+              oooorder = sample(1:nrow(mod6_data), floor(0.75 * nrow(mod6_data)), replace = FALSE)
+              train_data = mod6_data[oooorder,] %>% as.matrix()
+              test_data = mod6_data[-oooorder,] %>% as.matrix()
+              lgb_train = lgb.Dataset(train_data[, 1: ncol(train_data)-1], label = train_data[, ncol(train_data)])
+              lgb_test = lgb.Dataset(test_data[, 1: ncol(test_data)-1], label = test_data[, ncol(test_data)])
+        
+              params = list(
+                objective = "regression"
+                , metric = "l2"
+                , learning_rate = j
+                , num_leaves = k
+                , max_depth = i
+                , boosting = b
+                , feature_fraction = a
+                , bagging_fraction = c
+              )
+              
+              valids = list(test = lgb_test)
+              
+              model = lgb.train(
+                params = params
+                , data = lgb_train
+                , nrounds = 2000L
+                , valids = valids
+                , early_stopping_round = 100
+              )
+              
+              lgb.get.eval.result(model, "test", "l2")
+              pred = predict(model, test_data[, 1: ncol(test_data)-1])
+              true = unlist(test_data[,ncol(test_data)]) %>% as.numeric()
+              
+              pearson_cor <- c(pearson_cor, cor(pred, true))
+              xxx <- c(xxx, coefficient_of_determination(pred, true))
+              rmseee <- c(rmseee, rmse(true, pred))
+              maeee <- c(maeee, mae(true, pred))
+              depthh = c(depthh, i)
+              lrr = c(lrr, j)
+              num_leaves = c(num_leaves, k)
+              feature_frac = c(feature_frac, a)
+              bagging_frac = c(bagging_frac, c)
+              boost = c(boost, b)
+            }
+          }  
+        }  
+      }
+    }
+  }
+  paste('The optimal depth is :', depthh[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal learning_rate is :', lrr[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal num_leaves is :', num_leaves[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal feature_frac is :', feature_frac[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal bagging_frac is :', bagging_frac[which(xxx == max(xxx))]) %>% print()
+  paste('The optimal boosting is :', boost[which(xxx == max(xxx))]) %>% print()
+  
+  
+  pearson_cor = c()
+  r_2 = c()
+  rmseee = c()
+  maeee = c()
+  
+  for(i in 1:5){
+    train_data = mod5_data[-unlist(order[i]),] %>% as.matrix()
+    test_data = mod5_data[unlist(order[i]),] %>% as.matrix()
+    params = list(
+      objective = "regression"
+      , metric = "l2"
+      , learning_rate = lrr[which(xxx == max(xxx))[1]]                             # which(xxx == max(xxx))[1]
+      , num_leaves = num_leaves[which(xxx == max(xxx))[1]] 
+      , max_depth = depthh[which(xxx == max(xxx))[1]] 
+      , boosting = boost[which(xxx == max(xxx))[1]] 
+      , feature_fraction = feature_frac[which(xxx == max(xxx))[1]] 
+      , bagging_fraction = bagging_frac[which(xxx == max(xxx))[1]] 
+    )
+    
+    valids = list(test = lgb_test)
+    
+    model = lgb.train(
+      params = params
+      , data = lgb_train
+      , nrounds = 2000L
+      , valids = valids
+      , early_stopping_round = 100
+    )
+    
+    
+    pred = predict(mod5, newdata = test_data[,1:ncol(test_data) - 1]) %>% as.matrix()
+    true = unlist(test_data[,ncol(test_data)]) %>% as.numeric()
+    pearson_cor <- c(pearson_cor, cor(pred, true))
+    r_2 <- c(r_2, coefficient_of_determination(pred, true))
+    rmseee <- c(rmseee, rmse(true, pred))
+    maeee <- c(maeee, mae(true, pred))
+    
+    paste('Pearson Coefficient Correlation :', pearson_cor) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('Coefficient of Determination :', r_2) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('RMSE : ', rmseee) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('MAE : ', maeee) %>% print()
+  }
+}
 
 
 
@@ -413,10 +597,59 @@ xgboost123 <- function(data, order){
 
 
 
- # xgbst
+
+
+
+
+
+
+
+
+#################################################### 
+#automl_for_reg
+automl_cv <- function(data, order){
+  set.seed(123)
+  pearson_cor = c()
+  r_2 = c()
+  rmseee = c()
+  maeee = c()
+  for(i in 1:5){
+    train_data = data[-unlist(order[i]),] %>% as.data.frame()
+    test_data = data[unlist(order[i]),] %>% as.data.frame()
+    auto_mod = automl_train_manual(Xref = data[,-ncol(data)],
+                                   Yref = data[,ncol(data)],
+                                   hpar = list(learningrate = 0.001,
+                                               numiterations = 1000))
+    pred <- automl_predict(model = auto_mod, X = test_data[,-ncol(test_data)]) %>% as.numeric()
+    true = unlist(test_data[ncol(test_data)]) %>% as.numeric()
+    pearson_cor <- c(pearson_cor, cor(pred, true))
+    r_2 <- c(r_2, coefficient_of_determination(pred, true))
+    rmseee <- c(rmseee, rmse(true, pred))
+    maeee <- c(maeee, mae(true, pred))
+    
+    paste('Pearson Coefficient Correlation :', pearson_cor) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('Coefficient of Determination :', r_2) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('RMSE : ', rmseee) %>% print()
+    print("      ")
+    print(" __________________________ ")
+    print("      ")
+    paste('MAE : ', maeee) %>% print()
+  }
+}
+
+
+
+
+
 ##################
 
-get_information(data)
+get_info(data)
 all_func_together1 <- function(data, pos_X, pos_y, method){
   data <- data_selection(data, pos_X, pos_y, method)
   order = data_into_five(data)  
@@ -426,13 +659,197 @@ all_func_together1 <- function(data, pos_X, pos_y, method){
   tree_stat(data)
   rf_cv(data)
   xgboost123(data, order)
+  automl_cv(data, order)
 }
 all_func_together1(data, c(9:14, 7), c(8), 'mean')
 
-data <- data_selection(data, c(9:14, 7), c(8), 'mean')
 
+data <- data_selection(data, c(9:14, 7), c(8), 'mean')
+visual_summary1(data)
+
+
+
+
+s = preProcess(train_data, method = 'scale')
+zzd = predict(s, train_data)
+
+
+
+
+
+
+
+
+
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#####################################################################################
+
+
+# try to use mtcars to be the classification example
+# remeber cyl as y
+# rf, xgboost, lightgbm, svm, automl, knn, naivebayes, done
+
+
+
+data = read_csv("C:/Users/ft7b6/OneDrive/Desktop/wine.csv")
+get_info(data)
+data = data[sample(1:nrow(data), nrow(data), replace = F),]
+data <- data_selection(data, c(1:11), c(12), 'omit')
+
+
+
+
+
+pred = class::knn(train_data[,-ncol(train_data)], test_data[,-ncol(test_data)], 
+           cl = train_data[,ncol(train_data)], k = length(unique(train_data[,ncol(train_data)])))
+result = confusionMatrix(as.factor(pred), as.factor(test_data[,ncol(test_data)]), mode = 'prec_recall')
+result
+s = result$overall
+paste("The accuracy is", s[1])
+by_class_result = result$byClass %>% as.data.frame()
+by_class_result[,5:7]
+
+##############################################
+
+
+class_naive <- naiveBayes(unlist(train_data[ncol(train_data)]) ~ ., data = train_data[,1:ncol(train_data) - 1])
+pred <- predict(class_naive, newdata = as.matrix(test_data[,-ncol(train_data)]))
+result = confusionMatrix(as.factor(pred), as.factor(test_data[,ncol(test_data)]), mode = 'prec_recall')
+result
+
+
+##############################################
+
+
+class_svm <- svm(unlist(train_data[ncol(train_data)])  %>% as.numeric() ~ ., data = train_data[,1:ncol(train_data) - 1], 
+                            type = 'C-classification', kernel = 'linear')
+pred <- predict(class_svm, newdata = as.matrix(test_data[,-ncol(test_data)]))
+result = confusionMatrix(as.factor(pred), as.factor(test_data[,ncol(test_data)]), mode = 'prec_recall')
+result
+
+
+#############################################################################3
+
+
+class_auto <- automl_train(Xref = train_data[,1:ncol(train_data) - 1], 
+                  Yref = unlist(train_data[ncol(train_data)])  %>% as.numeric(),
+                  autopar = list(auto_learningrate = TRUE,
+                            minibatchsize = TRUE))
+这玩意只能reg 
+automl_predict(model = class_auto, X = )
+#########################################
+
+
+class_rf <- randomForest(as.factor(unlist(train_data[ncol(train_data)]) %>% as.numeric()) ~ ., 
+             data = train_data[,1:ncol(train_data) - 1])
+pred <- predict(class_rf, newdata = as.matrix(test_data[,-ncol(test_data)]))
+result = confusionMatrix(as.factor(pred), as.factor(test_data[,ncol(test_data)]), mode = 'prec_recall')
+result
+
+
+######################################################3
+
+class_xgb <-
+  xgboost(
+    data = train_data[, 1: ncol(train_data)-1],
+    label = train_data[, ncol(train_data)],
+    nrounds = 10000,
+    objective = "multi:softprob",
+    num_class = 6
+  )
+
+
+table(train_data[, ncol(train_data)])
+table(test_data[, ncol(test_data)])
+
+
+pred = predict(class_xgb, newdata = test_data[,1:ncol(test_data) - 1], reshape = TRUE) 
+pred = as.data.frame(pred)
+colnames(pred) = sort(unique(train_data[, ncol(train_data)]))
+pred = apply(pred,1,function(x) colnames(pred)[which.max(x)])
+confusionMatrix(table(factor(test_data[, ncol(test_data)]), as.factor(pred)))
+
+
+"""
+order = data_into_five(data)
 train_data = data[-unlist(order[i]),] %>% as.data.frame()
 test_data = data[unlist(order[i]),] %>% as.data.frame()
+"""
 
-s = caret::preProcess(train_data)
-predict(s, train_data)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+order = data_into_five(data)
+train_data = data[-unlist(order[1]),] %>% as.data.frame()
+test_data = data[unlist(order[1]),] %>% as.data.frame()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# change the class to zero 
+for(i in 1:length(unique(data$quality))){
+  a = i - 1
+  b = data$quality == sort(unique(data$quality))[i]
+  data$quality[which(b == TRUE)] = b
+}
+
+
+
+
+
+
+
+
+
